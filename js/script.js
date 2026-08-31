@@ -248,9 +248,6 @@ if (!window.location.hash) {
   let logoCycleInterval = null;
   let shareOverlayEl = null;
   let searchTimeout;
-  let adBlockPromptEl = null;
-  let adBlockPromptShown = false;
-  let adBlockDetected = false;
 
   let slideTrack;
   let sliderPrev;
@@ -5045,114 +5042,6 @@ document.getElementById('themesOverlay')?.addEventListener('click', closeAllSide
       const path = getEffectiveRoutePath();
       processRoutePath(path, true);
     });
-
-    function showAdBlockPrompt(reason = 'A browser extension or ad blocker appears to be blocking required site scripts.') {
-      if (adBlockPromptShown) {
-        if (adBlockPromptEl) {
-          adBlockPromptEl.classList.add('active');
-          document.body.style.overflow = 'hidden';
-        }
-        return;
-      }
-
-      adBlockPromptShown = true;
-      adBlockDetected = true;
-      if (adBlockPromptEl) {
-        adBlockPromptEl.remove();
-      }
-
-      adBlockPromptEl = document.createElement('div');
-      adBlockPromptEl.className = 'overlay adblock-overlay active';
-      adBlockPromptEl.setAttribute('role', 'dialog');
-      adBlockPromptEl.setAttribute('aria-modal', 'true');
-      adBlockPromptEl.setAttribute('aria-label', 'Ad blocker detected');
-      adBlockPromptEl.innerHTML = `
-        <div class="alert-modal adblock-modal" role="document">
-          <button class="close-btn adblock-close-btn" type="button" aria-label="Close ad blocker warning">
-            <i class="fas fa-times"></i>
-          </button>
-          <div class="adblock-icon"><i class="fas fa-shield-alt"></i></div>
-          <h3 class="adblock-title">Ad Blocker Detected</h3>
-          <p class="adblock-text">This site needs some browser scripts to load correctly. Please turn off your ad blocker or try a different browser, then reload the page.</p>
-          <p class="adblock-text adblock-subtext">${String(reason).replace(/</g, '&lt;')}</p>
-          <div class="adblock-actions">
-            <button class="adblock-btn adblock-primary-btn" type="button">Reload Page</button>
-            <button class="adblock-btn adblock-secondary-btn" type="button">Continue</button>
-          </div>
-        </div>
-      `;
-
-      document.body.appendChild(adBlockPromptEl);
-      document.body.style.overflow = 'hidden';
-
-      const closeBtn = adBlockPromptEl.querySelector('.adblock-close-btn');
-      const reloadBtn = adBlockPromptEl.querySelector('.adblock-primary-btn');
-      const continueBtn = adBlockPromptEl.querySelector('.adblock-secondary-btn');
-
-      closeBtn?.addEventListener('click', () => {
-        adBlockPromptEl.classList.remove('active');
-        document.body.style.overflow = '';
-      });
-
-      reloadBtn?.addEventListener('click', () => {
-        window.location.reload();
-      });
-
-      continueBtn?.addEventListener('click', () => {
-        adBlockPromptEl.classList.remove('active');
-        document.body.style.overflow = '';
-      });
-
-      adBlockPromptEl.addEventListener('click', (event) => {
-        if (event.target === adBlockPromptEl) {
-          adBlockPromptEl.classList.remove('active');
-          document.body.style.overflow = '';
-        }
-      });
-    }
-
-    function initializeAdBlockDetection() {
-      const blockedAssetPattern = /linkvertise|googlesyndication|doubleclick|googletag|ads|adservice/i;
-
-      const detectBlockedScriptError = (message = '', source = '') => {
-        if (!message && !source) return false;
-        const text = `${message} ${source}`;
-        return /ERR_BLOCKED_BY_CLIENT|linkvertise is not defined|blocked by client/i.test(text);
-      };
-
-      window.addEventListener('error', (event) => {
-        const message = String(event?.message || '');
-        const source = String(event?.filename || '');
-        if (detectBlockedScriptError(message, source)) {
-          adBlockDetected = true;
-          showAdBlockPrompt('A browser extension or ad blocker is preventing the site from loading required resources.');
-        }
-      });
-
-      document.addEventListener('error', (event) => {
-        const target = event.target;
-        if (!target || !('tagName' in target)) return;
-        const src = String(target.src || target.href || '');
-        const message = String(event.message || '');
-        if (blockedAssetPattern.test(src) && /ERR_BLOCKED_BY_CLIENT|blocked/i.test(message)) {
-          adBlockDetected = true;
-          showAdBlockPrompt('A browser extension or ad blocker is preventing the site from loading required resources.');
-        }
-      }, true);
-
-      window.addEventListener('load', () => {
-        const failedResources = Array.from(performance.getEntriesByType('resource') || []).filter(entry => {
-          const name = String(entry?.name || '');
-          return /ERR_BLOCKED_BY_CLIENT|linkvertise|googlesyndication|doubleclick|googletag|ads|adservice/i.test(name) && !entry.transferSize;
-        });
-
-        if (failedResources.length && !adBlockDetected) {
-          showAdBlockPrompt('The browser blocked a required script or ad-related resource.');
-        }
-      });
-    }
-
-    initializeAdBlockDetection();
 
     closeModal?.addEventListener('click', closeOverlay);
     overlay?.addEventListener('click', event => { if (event.target === overlay) closeOverlay(); });
