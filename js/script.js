@@ -2028,12 +2028,33 @@ if (!window.location.hash) {
     });
   }
 
+  function isLinkvertiseBlocked() {
+    const noGlobal = typeof window.linkvertise === 'undefined';
+    const resourceEntries = typeof performance !== 'undefined' && performance.getEntriesByType ? performance.getEntriesByType('resource') : [];
+    const blockedResource = resourceEntries.some(entry => {
+      const name = entry && entry.name ? String(entry.name) : '';
+      return /linkvertise/i.test(name) && (entry.transferSize === 0 || entry.responseStatus === 0 || entry.responseStatus >= 400);
+    });
+    const failedScripts = Array.from(document.querySelectorAll('script')).some(script => {
+      const src = (script && script.src) ? script.src : '';
+      return /linkvertise/i.test(src) && !script.dataset.linkvertiseLoaded;
+    });
+    return noGlobal || blockedResource || failedScripts;
+  }
+
   function showAdBlockDetectedModal() {
+    if (adBlockOverlayEl?.classList.contains('active')) return;
     ensureAdBlockOverlayExists();
     if (!adBlockOverlayEl) return;
     adBlockOverlayEl.classList.add('active');
     document.body.style.overflow = 'hidden';
     updateBottomNavVisibility();
+  }
+
+  function checkForInitialLinkvertiseBlock() {
+    if (isLinkvertiseBlocked()) {
+      showAdBlockDetectedModal();
+    }
   }
 
   function ensureDownloadPickerOverlayExists() {
@@ -2187,7 +2208,7 @@ if (!window.location.hash) {
         if (linkvertiseBtn.tagName === 'A') {
           linkvertiseBtn.href = hiddenLinkUrl || linkvertiseFallbackUrl;
           linkvertiseBtn.onclick = (event) => {
-            if (typeof window.linkvertise === 'undefined') {
+            if (isLinkvertiseBlocked()) {
               event.preventDefault();
               showAdBlockDetectedModal();
               return;
@@ -2202,7 +2223,7 @@ if (!window.location.hash) {
         } else {
           linkvertiseBtn.dataset.url = linkvertiseUrl;
           linkvertiseBtn.onclick = () => {
-            if (typeof window.linkvertise === 'undefined') {
+            if (isLinkvertiseBlocked()) {
               showAdBlockDetectedModal();
               return;
             }
@@ -2229,16 +2250,35 @@ if (!window.location.hash) {
     updateBottomNavVisibility();
   }
 
+  document.addEventListener('error', (event) => {
+    const target = event.target;
+    const message = event.message || '';
+    const filename = event.filename || '';
+    const isLinkvertiseScriptFailure = target && target.tagName === 'SCRIPT' && /linkvertise/i.test(target.src || '');
+    const blockedByClient = /ERR_BLOCKED_BY_CLIENT/i.test(message) || /linkvertise/i.test(filename);
+    const linkvertiseUndefined = /linkvertise is not defined/i.test(message);
+
+    if (isLinkvertiseScriptFailure || blockedByClient || linkvertiseUndefined) {
+      event.preventDefault();
+      showAdBlockDetectedModal();
+    }
+  }, true);
+
   window.addEventListener('error', (event) => {
     const message = event?.message || '';
     const filename = event?.filename || '';
-    const blockedByClient = message.includes('ERR_BLOCKED_BY_CLIENT') || filename.toLowerCase().includes('linkvertise');
-    const linkvertiseUndefined = message.includes('linkvertise is not defined');
+    const blockedByClient = /ERR_BLOCKED_BY_CLIENT/i.test(message) || /linkvertise/i.test(filename);
+    const linkvertiseUndefined = /linkvertise is not defined/i.test(message);
 
     if (blockedByClient || linkvertiseUndefined) {
       event.preventDefault();
       showAdBlockDetectedModal();
     }
+  });
+
+  window.addEventListener('load', () => {
+    setTimeout(checkForInitialLinkvertiseBlock, 500);
+    setTimeout(checkForInitialLinkvertiseBlock, 2000);
   });
 
   function ensureShareOverlayExists() {
