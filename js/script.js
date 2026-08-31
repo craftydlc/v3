@@ -248,6 +248,9 @@ if (!window.location.hash) {
   let logoCycleInterval = null;
   let shareOverlayEl = null;
   let searchTimeout;
+  let adBlockPromptEl = null;
+  let adBlockPromptShown = false;
+  let adBlockDetected = false;
 
   let slideTrack;
   let sliderPrev;
@@ -825,55 +828,6 @@ if (!window.location.hash) {
    * display. If the current sort is rating/popularity, triggers a re-sort.
    */
   let detailFetchQueue = new Set();
-  let fullDetailHydrationRunning = false;
-  let fullDetailHydrationRequested = false;
-
-  function isRatingPopularitySort() {
-    return currentSort === 'ratingHigh' || currentSort === 'ratingLow' ||
-      currentSort === 'popularityMost' || currentSort === 'popularityLeast';
-  }
-
-  function rerenderSortedItemsPreservingView() {
-    const container = document.getElementById('itemContainer');
-    if (!container || !isRatingPopularitySort()) return;
-
-    const scrollTop = window.scrollY;
-    const renderedCount = container.querySelectorAll('.item').length;
-    allFilteredSortedItems = getBaseItems();
-    currentPage = Math.max(1, Math.ceil(Math.max(renderedCount, ITEMS_PER_PAGE) / ITEMS_PER_PAGE));
-    hasMoreItems = currentPage * ITEMS_PER_PAGE < allFilteredSortedItems.length;
-    renderCurrentPage(() => window.scrollTo(0, scrollTop));
-    updateCategoryCount();
-  }
-
-  function hydrateAllDetailsForSort() {
-    if (!isRatingPopularitySort()) return;
-    fullDetailHydrationRequested = true;
-    if (fullDetailHydrationRunning) return;
-
-    fullDetailHydrationRunning = true;
-    const runHydration = async () => {
-      while (fullDetailHydrationRequested && isRatingPopularitySort()) {
-        fullDetailHydrationRequested = false;
-        const toFetch = itemsData.filter(item => item && !item._detailLoaded && !detailFetchQueue.has(item.uuid));
-        toFetch.forEach(item => detailFetchQueue.add(item.uuid));
-        let index = 0;
-        const fetchNext = async () => {
-          while (index < toFetch.length) {
-            const item = toFetch[index++];
-            await fetchItemDetail(item);
-            updateCardRatings(item);
-          }
-        };
-        await Promise.all(Array.from({ length: 5 }, fetchNext));
-        if (isRatingPopularitySort()) rerenderSortedItemsPreservingView();
-      }
-    };
-    runHydration().finally(() => {
-      fullDetailHydrationRunning = false;
-      if (fullDetailHydrationRequested && isRatingPopularitySort()) hydrateAllDetailsForSort();
-    });
-  }
 
   function fetchDetailsForVisibleCards() {
     // Collect UUIDs of cards currently in the DOM that haven't been detail-fetched
@@ -908,9 +862,11 @@ if (!window.location.hash) {
 
     // After all workers complete, re-sort if sorting by rating/popularity
     Promise.all(workers).then(() => {
-      if (isRatingPopularitySort()) {
+      if (currentSort === 'ratingHigh' || currentSort === 'ratingLow' ||
+          currentSort === 'popularityMost' || currentSort === 'popularityLeast') {
         // Re-sort and re-render with the new rating data
-        rerenderSortedItemsPreservingView();
+        allFilteredSortedItems = getBaseItems();
+        renderItems();
       }
     }).catch(() => {});
   }
@@ -1247,7 +1203,7 @@ if (!window.location.hash) {
     }
   }
 
-  function renderCurrentPage(onComplete = null) {
+  function renderCurrentPage() {
     const container = document.getElementById('itemContainer');
     if (!container) return;
     container.innerHTML = '';
@@ -1259,7 +1215,6 @@ if (!window.location.hash) {
       container.innerHTML = '<div class="no-items">No Results</div>';
       hasMoreItems = false;
       isRendering = false;
-      onComplete?.();
       return;
     }
 
@@ -1293,7 +1248,6 @@ if (!window.location.hash) {
         if (renderToken === currentRenderToken) {
           setTimeout(fetchDetailsForVisibleCards, 100);
         }
-        onComplete?.();
       }
     }
 
@@ -3299,7 +3253,6 @@ if (!window.location.hash) {
       renderItems();
       updateCategoryCount();
     }
-    hydrateAllDetailsForSort();
   }
 
   function performSearch(searchQuery) {
@@ -4294,7 +4247,6 @@ if (!window.location.hash) {
           // CRITICAL: Update itemsData here so getBaseItems() and renderItems()
           // can see the items.
           itemsData = allItemsSoFar;
-          hydrateAllDetailsForSort();
           processHashRouteIfNeeded();
 
           if (!firstBatchRendered && allItemsSoFar.length > 0) {
@@ -5093,6 +5045,114 @@ document.getElementById('themesOverlay')?.addEventListener('click', closeAllSide
       const path = getEffectiveRoutePath();
       processRoutePath(path, true);
     });
+
+    function showAdBlockPrompt(reason = 'A browser extension or ad blocker appears to be blocking required site scripts.') {
+      if (adBlockPromptShown) {
+        if (adBlockPromptEl) {
+          adBlockPromptEl.classList.add('active');
+          document.body.style.overflow = 'hidden';
+        }
+        return;
+      }
+
+      adBlockPromptShown = true;
+      adBlockDetected = true;
+      if (adBlockPromptEl) {
+        adBlockPromptEl.remove();
+      }
+
+      adBlockPromptEl = document.createElement('div');
+      adBlockPromptEl.className = 'overlay adblock-overlay active';
+      adBlockPromptEl.setAttribute('role', 'dialog');
+      adBlockPromptEl.setAttribute('aria-modal', 'true');
+      adBlockPromptEl.setAttribute('aria-label', 'Ad blocker detected');
+      adBlockPromptEl.innerHTML = `
+        <div class="alert-modal adblock-modal" role="document">
+          <button class="close-btn adblock-close-btn" type="button" aria-label="Close ad blocker warning">
+            <i class="fas fa-times"></i>
+          </button>
+          <div class="adblock-icon"><i class="fas fa-shield-alt"></i></div>
+          <h3 class="adblock-title">Ad Blocker Detected</h3>
+          <p class="adblock-text">This site needs some browser scripts to load correctly. Please turn off your ad blocker or try a different browser, then reload the page.</p>
+          <p class="adblock-text adblock-subtext">${String(reason).replace(/</g, '&lt;')}</p>
+          <div class="adblock-actions">
+            <button class="adblock-btn adblock-primary-btn" type="button">Reload Page</button>
+            <button class="adblock-btn adblock-secondary-btn" type="button">Continue</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(adBlockPromptEl);
+      document.body.style.overflow = 'hidden';
+
+      const closeBtn = adBlockPromptEl.querySelector('.adblock-close-btn');
+      const reloadBtn = adBlockPromptEl.querySelector('.adblock-primary-btn');
+      const continueBtn = adBlockPromptEl.querySelector('.adblock-secondary-btn');
+
+      closeBtn?.addEventListener('click', () => {
+        adBlockPromptEl.classList.remove('active');
+        document.body.style.overflow = '';
+      });
+
+      reloadBtn?.addEventListener('click', () => {
+        window.location.reload();
+      });
+
+      continueBtn?.addEventListener('click', () => {
+        adBlockPromptEl.classList.remove('active');
+        document.body.style.overflow = '';
+      });
+
+      adBlockPromptEl.addEventListener('click', (event) => {
+        if (event.target === adBlockPromptEl) {
+          adBlockPromptEl.classList.remove('active');
+          document.body.style.overflow = '';
+        }
+      });
+    }
+
+    function initializeAdBlockDetection() {
+      const blockedAssetPattern = /linkvertise|googlesyndication|doubleclick|googletag|ads|adservice/i;
+
+      const detectBlockedScriptError = (message = '', source = '') => {
+        if (!message && !source) return false;
+        const text = `${message} ${source}`;
+        return /ERR_BLOCKED_BY_CLIENT|linkvertise is not defined|blocked by client/i.test(text);
+      };
+
+      window.addEventListener('error', (event) => {
+        const message = String(event?.message || '');
+        const source = String(event?.filename || '');
+        if (detectBlockedScriptError(message, source)) {
+          adBlockDetected = true;
+          showAdBlockPrompt('A browser extension or ad blocker is preventing the site from loading required resources.');
+        }
+      });
+
+      document.addEventListener('error', (event) => {
+        const target = event.target;
+        if (!target || !('tagName' in target)) return;
+        const src = String(target.src || target.href || '');
+        const message = String(event.message || '');
+        if (blockedAssetPattern.test(src) && /ERR_BLOCKED_BY_CLIENT|blocked/i.test(message)) {
+          adBlockDetected = true;
+          showAdBlockPrompt('A browser extension or ad blocker is preventing the site from loading required resources.');
+        }
+      }, true);
+
+      window.addEventListener('load', () => {
+        const failedResources = Array.from(performance.getEntriesByType('resource') || []).filter(entry => {
+          const name = String(entry?.name || '');
+          return /ERR_BLOCKED_BY_CLIENT|linkvertise|googlesyndication|doubleclick|googletag|ads|adservice/i.test(name) && !entry.transferSize;
+        });
+
+        if (failedResources.length && !adBlockDetected) {
+          showAdBlockPrompt('The browser blocked a required script or ad-related resource.');
+        }
+      });
+    }
+
+    initializeAdBlockDetection();
 
     closeModal?.addEventListener('click', closeOverlay);
     overlay?.addEventListener('click', event => { if (event.target === overlay) closeOverlay(); });
