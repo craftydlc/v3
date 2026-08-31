@@ -2047,6 +2047,7 @@ if (!window.location.hash) {
   }
 
   let adBlockOverlayEl = null;
+  let linkvertiseFailureTimer = null;
 
   function isLinkvertiseFailureMessage(value) {
     const text = String(value || '');
@@ -2165,19 +2166,20 @@ if (!window.location.hash) {
     document.body.classList.add('ad-block-overlay-active');
   }
 
-  function monitorLinkvertiseFailure() {
-    window.addEventListener('error', (event) => {
-      const details = [event.message, event.filename, event.error && event.error.stack ? event.error.stack : ''].join(' ');
-      if (isLinkvertiseFailureMessage(details)) {
-        showAdBlockDetectedOverlay();
-      }
-    });
+  function clearLinkvertiseFailureTimer() {
+    if (linkvertiseFailureTimer) {
+      clearTimeout(linkvertiseFailureTimer);
+      linkvertiseFailureTimer = null;
+    }
+  }
 
-    window.addEventListener('unhandledrejection', (event) => {
-      if (isLinkvertiseFailureMessage(event.reason)) {
+  function triggerLinkvertiseVerification() {
+    clearLinkvertiseFailureTimer();
+    linkvertiseFailureTimer = setTimeout(() => {
+      if (typeof window.linkvertise === 'undefined') {
         showAdBlockDetectedOverlay();
       }
-    });
+    }, 1500);
   }
 
   function openDownloadPickerForUuid(uuid, index) {
@@ -2280,31 +2282,26 @@ if (!window.location.hash) {
         if (linkvertiseBtn.tagName === 'A') {
           linkvertiseBtn.href = hiddenLinkUrl || linkvertiseFallbackUrl;
           linkvertiseBtn.onclick = (event) => {
-            if (typeof window.linkvertise === 'undefined') {
-              event.preventDefault();
-              showAdBlockDetectedOverlay();
-              return;
-            }
+            clearLinkvertiseFailureTimer();
             if (hiddenLinkElement) {
               event.preventDefault();
               hiddenLinkElement.target = '_blank';
               hiddenLinkElement.click();
             }
+            triggerLinkvertiseVerification();
             incrementDownloadCount(uuid);
           };
         } else {
           linkvertiseBtn.dataset.url = linkvertiseUrl;
           linkvertiseBtn.onclick = () => {
-            if (typeof window.linkvertise === 'undefined') {
-              showAdBlockDetectedOverlay();
-              return;
-            }
+            clearLinkvertiseFailureTimer();
             if (hiddenLinkElement) {
               hiddenLinkElement.target = '_blank';
               hiddenLinkElement.click();
             } else if (linkvertiseFallbackUrl) {
               window.open(linkvertiseFallbackUrl, '_blank', 'noopener');
             }
+            triggerLinkvertiseVerification();
             incrementDownloadCount(uuid);
           };
         }
