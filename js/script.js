@@ -247,7 +247,6 @@ if (!window.location.hash) {
   let overlayItemUuid = null;
   let logoCycleInterval = null;
   let shareOverlayEl = null;
-  let adBlockOverlayEl = null;
   let searchTimeout;
 
   let slideTrack;
@@ -1996,67 +1995,6 @@ if (!window.location.hash) {
     updateBottomNavVisibility();
   }
 
-  function ensureAdBlockOverlayExists() {
-    if (adBlockOverlayEl) return;
-    adBlockOverlayEl = document.createElement('div');
-    adBlockOverlayEl.id = 'adBlockOverlay';
-    adBlockOverlayEl.className = 'overlay';
-    adBlockOverlayEl.innerHTML = `
-      <div class="share-modal" role="dialog" aria-modal="true" aria-label="Ad Block Detected" style="max-width: 480px;">
-        <div class="share-title" style="color: var(--modal-title-color, #ffffff); font-size: 1.8rem; margin-bottom: 12px;">Ad Block Detected</div>
-        <div class="share-label" style="margin-bottom: 14px; color: var(--modal-desc-color, #dddddd); font-size: 1rem; line-height: 1.6; text-align: center;">
-          In order for this website to work you must disable ad blocker or use different browser
-        </div>
-        <div class="share-link-row" style="display: flex; gap: 12px; justify-content: center; margin-top: 18px;">
-          <button class="copy-share-btn" id="adBlockCopyLinkBtn" type="button" style="min-width: 128px;">Copy Link</button>
-          <button class="copy-share-btn" id="adBlockReloadPageBtn" type="button" style="min-width: 128px;">Reload Page</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(adBlockOverlayEl);
-
-    const copyBtn = adBlockOverlayEl.querySelector('#adBlockCopyLinkBtn');
-    const reloadBtn = adBlockOverlayEl.querySelector('#adBlockReloadPageBtn');
-
-    copyBtn?.addEventListener('click', async () => {
-      const ok = await copyTextToClipboard(window.location.href);
-      if (ok) showCopyFeedback(copyBtn);
-    });
-
-    reloadBtn?.addEventListener('click', () => {
-      window.location.reload();
-    });
-  }
-
-  function isLinkvertiseBlocked() {
-    const noGlobal = typeof window.linkvertise === 'undefined';
-    const resourceEntries = typeof performance !== 'undefined' && performance.getEntriesByType ? performance.getEntriesByType('resource') : [];
-    const blockedResource = resourceEntries.some(entry => {
-      const name = entry && entry.name ? String(entry.name) : '';
-      return /linkvertise/i.test(name) && (entry.transferSize === 0 || entry.responseStatus === 0 || entry.responseStatus >= 400);
-    });
-    const failedScripts = Array.from(document.querySelectorAll('script')).some(script => {
-      const src = (script && script.src) ? script.src : '';
-      return /linkvertise/i.test(src) && !script.dataset.linkvertiseLoaded;
-    });
-    return noGlobal || blockedResource || failedScripts;
-  }
-
-  function showAdBlockDetectedModal() {
-    if (adBlockOverlayEl?.classList.contains('active')) return;
-    ensureAdBlockOverlayExists();
-    if (!adBlockOverlayEl) return;
-    adBlockOverlayEl.classList.add('active');
-    document.body.style.overflow = 'hidden';
-    updateBottomNavVisibility();
-  }
-
-  function checkForInitialLinkvertiseBlock() {
-    if (isLinkvertiseBlocked()) {
-      showAdBlockDetectedModal();
-    }
-  }
-
   function ensureDownloadPickerOverlayExists() {
     if (downloadPickerOverlayEl) return;
     downloadPickerOverlayEl = document.createElement('div');
@@ -2105,6 +2043,140 @@ if (!window.location.hash) {
       document.getElementById('themesOverlay')?.classList.add('active');
       document.body.style.overflow = 'hidden';
       updateBottomNavVisibility();
+    });
+  }
+
+  let adBlockOverlayEl = null;
+
+  function isLinkvertiseFailureMessage(value) {
+    const text = String(value || '');
+    return /linkvertise/i.test(text) || /ERR_BLOCKED_BY_CLIENT/i.test(text) || /Failed to load resource/i.test(text);
+  }
+
+  function showAdBlockDetectedOverlay() {
+    if (!document.body) return;
+    if (!adBlockOverlayEl) {
+      adBlockOverlayEl = document.createElement('div');
+      adBlockOverlayEl.id = 'adBlockDetectedOverlay';
+      adBlockOverlayEl.setAttribute('aria-live', 'assertive');
+      adBlockOverlayEl.style.position = 'fixed';
+      adBlockOverlayEl.style.inset = '0';
+      adBlockOverlayEl.style.zIndex = '99999';
+      adBlockOverlayEl.style.display = 'flex';
+      adBlockOverlayEl.style.alignItems = 'center';
+      adBlockOverlayEl.style.justifyContent = 'center';
+      adBlockOverlayEl.style.background = 'rgba(8, 11, 22, 0.82)';
+      adBlockOverlayEl.style.backdropFilter = 'blur(6px)';
+      adBlockOverlayEl.style.padding = '20px';
+      adBlockOverlayEl.style.boxSizing = 'border-box';
+
+      const panel = document.createElement('div');
+      panel.style.width = 'min(100%, 520px)';
+      panel.style.background = 'linear-gradient(180deg, rgba(18, 22, 38, 0.98), rgba(12, 16, 30, 0.98))';
+      panel.style.border = '1px solid rgba(122, 176, 255, 0.55)';
+      panel.style.borderRadius = '18px';
+      panel.style.boxShadow = '0 24px 60px rgba(0, 0, 0, 0.55)';
+      panel.style.padding = '28px 24px 22px';
+      panel.style.textAlign = 'center';
+      panel.style.color = '#f3f7ff';
+      panel.style.fontFamily = 'Rubik, Montserrat, sans-serif';
+
+      const title = document.createElement('h2');
+      title.textContent = 'Ad Block Detected';
+      title.style.margin = '0 0 16px';
+      title.style.fontSize = '2rem';
+      title.style.lineHeight = '1.2';
+      title.style.fontWeight = '800';
+      title.style.color = '#ffffff';
+      title.style.letterSpacing = '0.02em';
+
+      const message = document.createElement('p');
+      message.textContent = 'In order for this website to work you must disable ad blocker or use different browser';
+      message.style.margin = '0 0 22px';
+      message.style.fontSize = '1.02rem';
+      message.style.lineHeight = '1.7';
+      message.style.color = '#dfe8ff';
+      message.style.fontWeight = '500';
+
+      const actions = document.createElement('div');
+      actions.style.display = 'flex';
+      actions.style.justifyContent = 'center';
+      actions.style.gap = '12px';
+      actions.style.flexWrap = 'wrap';
+
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.textContent = 'Copy Link';
+      copyBtn.style.border = 'none';
+      copyBtn.style.borderRadius = '12px';
+      copyBtn.style.background = 'linear-gradient(135deg, #4f8cff, #7b61ff)';
+      copyBtn.style.color = '#ffffff';
+      copyBtn.style.cursor = 'pointer';
+      copyBtn.style.fontSize = '1rem';
+      copyBtn.style.fontWeight = '700';
+      copyBtn.style.padding = '12px 18px';
+      copyBtn.style.minWidth = '160px';
+      copyBtn.style.boxShadow = '0 10px 24px rgba(79, 140, 255, 0.35)';
+      copyBtn.addEventListener('click', async () => {
+        const pageUrl = window.location.href;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(pageUrl);
+          } else {
+            const tempInput = document.createElement('input');
+            tempInput.value = pageUrl;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            tempInput.remove();
+          }
+        } catch (error) {
+          // no-op: still allow the user to manually copy the URL if clipboard is blocked
+        }
+      });
+
+      const reloadBtn = document.createElement('button');
+      reloadBtn.type = 'button';
+      reloadBtn.textContent = 'Reload Page';
+      reloadBtn.style.border = '1px solid rgba(255,255,255,0.2)';
+      reloadBtn.style.borderRadius = '12px';
+      reloadBtn.style.background = 'rgba(255, 255, 255, 0.05)';
+      reloadBtn.style.color = '#ffffff';
+      reloadBtn.style.cursor = 'pointer';
+      reloadBtn.style.fontSize = '1rem';
+      reloadBtn.style.fontWeight = '700';
+      reloadBtn.style.padding = '12px 18px';
+      reloadBtn.style.minWidth = '160px';
+      reloadBtn.addEventListener('click', () => {
+        window.location.reload();
+      });
+
+      actions.appendChild(copyBtn);
+      actions.appendChild(reloadBtn);
+      panel.appendChild(title);
+      panel.appendChild(message);
+      panel.appendChild(actions);
+      adBlockOverlayEl.appendChild(panel);
+      document.body.appendChild(adBlockOverlayEl);
+    }
+
+    adBlockOverlayEl.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    document.body.classList.add('ad-block-overlay-active');
+  }
+
+  function monitorLinkvertiseFailure() {
+    window.addEventListener('error', (event) => {
+      const details = [event.message, event.filename, event.error && event.error.stack ? event.error.stack : ''].join(' ');
+      if (isLinkvertiseFailureMessage(details)) {
+        showAdBlockDetectedOverlay();
+      }
+    });
+
+    window.addEventListener('unhandledrejection', (event) => {
+      if (isLinkvertiseFailureMessage(event.reason)) {
+        showAdBlockDetectedOverlay();
+      }
     });
   }
 
@@ -2208,9 +2280,9 @@ if (!window.location.hash) {
         if (linkvertiseBtn.tagName === 'A') {
           linkvertiseBtn.href = hiddenLinkUrl || linkvertiseFallbackUrl;
           linkvertiseBtn.onclick = (event) => {
-            if (isLinkvertiseBlocked()) {
+            if (typeof window.linkvertise === 'undefined') {
               event.preventDefault();
-              showAdBlockDetectedModal();
+              showAdBlockDetectedOverlay();
               return;
             }
             if (hiddenLinkElement) {
@@ -2223,8 +2295,8 @@ if (!window.location.hash) {
         } else {
           linkvertiseBtn.dataset.url = linkvertiseUrl;
           linkvertiseBtn.onclick = () => {
-            if (isLinkvertiseBlocked()) {
-              showAdBlockDetectedModal();
+            if (typeof window.linkvertise === 'undefined') {
+              showAdBlockDetectedOverlay();
               return;
             }
             if (hiddenLinkElement) {
@@ -2249,37 +2321,6 @@ if (!window.location.hash) {
     document.body.style.overflow = 'hidden';
     updateBottomNavVisibility();
   }
-
-  document.addEventListener('error', (event) => {
-    const target = event.target;
-    const message = event.message || '';
-    const filename = event.filename || '';
-    const isLinkvertiseScriptFailure = target && target.tagName === 'SCRIPT' && /linkvertise/i.test(target.src || '');
-    const blockedByClient = /ERR_BLOCKED_BY_CLIENT/i.test(message) || /linkvertise/i.test(filename);
-    const linkvertiseUndefined = /linkvertise is not defined/i.test(message);
-
-    if (isLinkvertiseScriptFailure || blockedByClient || linkvertiseUndefined) {
-      event.preventDefault();
-      showAdBlockDetectedModal();
-    }
-  }, true);
-
-  window.addEventListener('error', (event) => {
-    const message = event?.message || '';
-    const filename = event?.filename || '';
-    const blockedByClient = /ERR_BLOCKED_BY_CLIENT/i.test(message) || /linkvertise/i.test(filename);
-    const linkvertiseUndefined = /linkvertise is not defined/i.test(message);
-
-    if (blockedByClient || linkvertiseUndefined) {
-      event.preventDefault();
-      showAdBlockDetectedModal();
-    }
-  });
-
-  window.addEventListener('load', () => {
-    setTimeout(checkForInitialLinkvertiseBlock, 500);
-    setTimeout(checkForInitialLinkvertiseBlock, 2000);
-  });
 
   function ensureShareOverlayExists() {
     if (shareOverlayEl) return;
