@@ -247,6 +247,7 @@ if (!window.location.hash) {
   let overlayItemUuid = null;
   let logoCycleInterval = null;
   let shareOverlayEl = null;
+  let adBlockOverlayEl = null;
   let searchTimeout;
 
   let slideTrack;
@@ -1995,6 +1996,46 @@ if (!window.location.hash) {
     updateBottomNavVisibility();
   }
 
+  function ensureAdBlockOverlayExists() {
+    if (adBlockOverlayEl) return;
+    adBlockOverlayEl = document.createElement('div');
+    adBlockOverlayEl.id = 'adBlockOverlay';
+    adBlockOverlayEl.className = 'overlay';
+    adBlockOverlayEl.innerHTML = `
+      <div class="share-modal" role="dialog" aria-modal="true" aria-label="Ad Block Detected" style="max-width: 480px;">
+        <div class="share-title" style="color: var(--modal-title-color, #ffffff); font-size: 1.8rem; margin-bottom: 12px;">Ad Block Detected</div>
+        <div class="share-label" style="margin-bottom: 14px; color: var(--modal-desc-color, #dddddd); font-size: 1rem; line-height: 1.6; text-align: center;">
+          In order for this website to work you must disable ad blocker or use different browser
+        </div>
+        <div class="share-link-row" style="display: flex; gap: 12px; justify-content: center; margin-top: 18px;">
+          <button class="copy-share-btn" id="adBlockCopyLinkBtn" type="button" style="min-width: 128px;">Copy Link</button>
+          <button class="copy-share-btn" id="adBlockReloadPageBtn" type="button" style="min-width: 128px;">Reload Page</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(adBlockOverlayEl);
+
+    const copyBtn = adBlockOverlayEl.querySelector('#adBlockCopyLinkBtn');
+    const reloadBtn = adBlockOverlayEl.querySelector('#adBlockReloadPageBtn');
+
+    copyBtn?.addEventListener('click', async () => {
+      const ok = await copyTextToClipboard(window.location.href);
+      if (ok) showCopyFeedback(copyBtn);
+    });
+
+    reloadBtn?.addEventListener('click', () => {
+      window.location.reload();
+    });
+  }
+
+  function showAdBlockDetectedModal() {
+    ensureAdBlockOverlayExists();
+    if (!adBlockOverlayEl) return;
+    adBlockOverlayEl.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    updateBottomNavVisibility();
+  }
+
   function ensureDownloadPickerOverlayExists() {
     if (downloadPickerOverlayEl) return;
     downloadPickerOverlayEl = document.createElement('div');
@@ -2146,6 +2187,11 @@ if (!window.location.hash) {
         if (linkvertiseBtn.tagName === 'A') {
           linkvertiseBtn.href = hiddenLinkUrl || linkvertiseFallbackUrl;
           linkvertiseBtn.onclick = (event) => {
+            if (typeof window.linkvertise === 'undefined') {
+              event.preventDefault();
+              showAdBlockDetectedModal();
+              return;
+            }
             if (hiddenLinkElement) {
               event.preventDefault();
               hiddenLinkElement.target = '_blank';
@@ -2156,6 +2202,10 @@ if (!window.location.hash) {
         } else {
           linkvertiseBtn.dataset.url = linkvertiseUrl;
           linkvertiseBtn.onclick = () => {
+            if (typeof window.linkvertise === 'undefined') {
+              showAdBlockDetectedModal();
+              return;
+            }
             if (hiddenLinkElement) {
               hiddenLinkElement.target = '_blank';
               hiddenLinkElement.click();
@@ -2178,6 +2228,18 @@ if (!window.location.hash) {
     document.body.style.overflow = 'hidden';
     updateBottomNavVisibility();
   }
+
+  window.addEventListener('error', (event) => {
+    const message = event?.message || '';
+    const filename = event?.filename || '';
+    const blockedByClient = message.includes('ERR_BLOCKED_BY_CLIENT') || filename.toLowerCase().includes('linkvertise');
+    const linkvertiseUndefined = message.includes('linkvertise is not defined');
+
+    if (blockedByClient || linkvertiseUndefined) {
+      event.preventDefault();
+      showAdBlockDetectedModal();
+    }
+  });
 
   function ensureShareOverlayExists() {
     if (shareOverlayEl) return;
