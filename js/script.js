@@ -42,9 +42,10 @@ if (!window.location.hash) {
 
   // === MARKETPLACE API CONFIG (replaces the old database.json catalog) ===
   // The app now uses the Vercel bridge/proxy so the frontend does not hit the
-  // upstream source or Discord directly.
+  // upstream source or Discord directly. Do not hardcode the total page count;
+  // the API should determine the real end of the catalog and stop naturally.
   const MARKETPLACE_API = 'https://keys-steel.vercel.app/api/items';
-  const MARKETPLACE_TOTAL_PAGES = 1534; // ceil(36805 / 24)
+  let MARKETPLACE_TOTAL_PAGES = null;
   const MARKETPLACE_PARALLEL_PAGES = 20; // fetch 20 pages in parallel = 480 items per batch
   const MARKETPLACE_CACHE_KEY = 'marketplace_api_cache_v1';
   const MARKETPLACE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -3631,7 +3632,16 @@ if (!window.location.hash) {
       throw new Error(`Marketplace API page ${page} failed: ${response.status}`);
     }
     const json = await response.json();
-    return Array.isArray(json.items) ? json.items : [];
+    const items = Array.isArray(json.items) ? json.items : [];
+    const totalFromApi = Number(json.totalPages || json.totalPagesCount || json.total || json.count || 0);
+    if (totalFromApi > 0) {
+      const computedPages = Math.ceil(totalFromApi / 24);
+      MARKETPLACE_TOTAL_PAGES = computedPages > 0 ? computedPages : null;
+    }
+    if (items.length === 0 && MARKETPLACE_TOTAL_PAGES === null) {
+      MARKETPLACE_TOTAL_PAGES = page;
+    }
+    return items;
   }
 
   /**
@@ -3917,13 +3927,18 @@ if (!window.location.hash) {
     } catch (e) { return false; }
   }
 
+  function getMarketplaceTotalPages() {
+    return Number.isFinite(MARKETPLACE_TOTAL_PAGES) && MARKETPLACE_TOTAL_PAGES > 0 ? MARKETPLACE_TOTAL_PAGES : 0;
+  }
+
   /**
-   * Load all marketplace items (across all 1,534 pages) with caching.
-   * Returns an array of UI-format items.
+   * Load all marketplace items with caching.
+   * Stops when the live API reports no more pages instead of relying on a
+   * hardcoded page count.
    */
   // Global progress tracker for background loading — read by the settings panel
   // indicator and the loader UI.
-  let loadProgress = { done: 0, total: MARKETPLACE_TOTAL_PAGES, itemsLoaded: 0, complete: false };
+  let loadProgress = { done: 0, total: getMarketplaceTotalPages(), itemsLoaded: 0, complete: false };
   let marketplaceLocalStorageDisabled = false;
 
   // Avoid trusting an old partial catalog cache. Earlier interrupted loads can
@@ -3978,8 +3993,8 @@ if (!window.location.hash) {
         if (cached && Array.isArray(cached.items) && cached.at && Date.now() - cached.at < MARKETPLACE_CACHE_TTL_MS) {
           if (cached.complete && cached.items.length >= MIN_VALID_CACHE_ITEMS) {
             console.log(`Using IndexedDB Cached: ${cached.items.length} Items`);
-            loadProgress.done = MARKETPLACE_TOTAL_PAGES;
-            loadProgress.total = MARKETPLACE_TOTAL_PAGES;
+            loadProgress.done = getMarketplaceTotalPages();
+            loadProgress.total = getMarketplaceTotalPages();
             loadProgress.itemsLoaded = cached.items.length;
             loadProgress.complete = true;
             if (typeof onProgress === 'function') onProgress(loadProgress.done, loadProgress.total);
@@ -3990,7 +4005,7 @@ if (!window.location.hash) {
           if (cached.done && cached.items.length > 0) {
             console.log(`Resuming Cache: ${cached.items.length} Items`);
             resumedItems = dedupeItemsByUuid(cached.items);
-            resumedDone = Math.min(Number(cached.done), MARKETPLACE_TOTAL_PAGES);
+            resumedDone = Math.min(Number(cached.done), getMarketplaceTotalPages() || Number.MAX_SAFE_INTEGER);
           } else if (cached.items && cached.items.length < MIN_VALID_CACHE_ITEMS) {
             await idbDelete(MARKETPLACE_IDB_KEY);
           }
@@ -4004,8 +4019,8 @@ if (!window.location.hash) {
           if (parsed && Array.isArray(parsed.items) && parsed.at && Date.now() - parsed.at < MARKETPLACE_CACHE_TTL_MS) {
             if (parsed.complete && parsed.items.length >= MIN_VALID_CACHE_ITEMS) {
               console.log(`Using IndexedDB Cached: ${parsed.items.length} Items`);
-              loadProgress.done = MARKETPLACE_TOTAL_PAGES;
-              loadProgress.total = MARKETPLACE_TOTAL_PAGES;
+              loadProgress.done = getMarketplaceTotalPages();
+              loadProgress.total = getMarketplaceTotalPages();
               loadProgress.itemsLoaded = parsed.items.length;
               loadProgress.complete = true;
               if (typeof onProgress === 'function') onProgress(loadProgress.done, loadProgress.total);
@@ -4016,7 +4031,7 @@ if (!window.location.hash) {
             if (parsed.done && parsed.items.length > 0 && !resumedItems) {
               console.log(`Resuming from partial cached marketplace data: ${parsed.items.length} items, page ${parsed.done}`);
               resumedItems = dedupeItemsByUuid(parsed.items);
-              resumedDone = Math.min(Number(parsed.done), MARKETPLACE_TOTAL_PAGES);
+              resumedDone = Math.min(Number(parsed.done), getMarketplaceTotalPages() || Number.MAX_SAFE_INTEGER);
             } else if (parsed.items && parsed.items.length < MIN_VALID_CACHE_ITEMS) {
               localStorage.removeItem(MARKETPLACE_CACHE_KEY);
             }
@@ -4046,10 +4061,10 @@ if (!window.location.hash) {
     } else {
       // === PHASE 1: Fetch first 10 pages (240 items) and render immediately ===
       loadProgress.done = 0;
-      loadProgress.total = MARKETPLACE_TOTAL_PAGES;
+      loadProgress.total = getMarketplaceTotalPages();
       loadProgress.itemsLoaded = 0;
       loadProgress.complete = false;
-      if (typeof onProgress === 'function') onProgress(0, MARKETPLACE_TOTAL_PAGES);
+      if (typeof onProgress === 'function') onProgress(0, loadProgress.total || 0);
 
       const initialPageCount = 1;
       const initialPages = Array.from({ length: initialPageCount }, (_, i) => i + 1);
@@ -4058,33 +4073,49 @@ if (!window.location.hash) {
       transformed = initialItems.map((item, i) => transformMarketplaceItem(item, i));
       loadProgress.done = initialPageCount;
       loadProgress.itemsLoaded = transformed.length;
-      if (typeof onProgress === 'function') onProgress(initialPageCount, MARKETPLACE_TOTAL_PAGES);
+      loadProgress.total = getMarketplaceTotalPages();
+      if (typeof onProgress === 'function') onProgress(initialPageCount, loadProgress.total || initialPageCount);
       if (typeof onBatch === 'function') onBatch(transformed, loadProgress);
       saveMarketplaceCacheData(transformed, loadProgress.done, false, upstreamFingerprint);
       startPage = initialPageCount + 1;
     }
 
-    // === PHASE 2: Fetch the remaining pages in the background ===
+    // === PHASE 2: Fetch the remaining pages in the background until the API
+    // reports no more results. This avoids hardcoded page limits.
     const batchSize = MARKETPLACE_PARALLEL_PAGES;
-    for (let start = startPage; start <= MARKETPLACE_TOTAL_PAGES; start += batchSize) {
-      const end = Math.min(start + batchSize - 1, MARKETPLACE_TOTAL_PAGES);
-      const batch = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+    let currentPage = startPage;
+    while (true) {
+      const totalKnown = getMarketplaceTotalPages();
+      const maxPage = totalKnown > 0 ? totalKnown : currentPage + batchSize - 1;
+      const batchEnd = Math.min(currentPage + batchSize - 1, maxPage);
+      const batch = Array.from({ length: Math.max(0, batchEnd - currentPage + 1) }, (_, i) => currentPage + i);
+      if (batch.length === 0) break;
+
       const items = dedupeItemsByUuid(await fetchMarketplacePagesParallel(batch));
+      if (!items.length) break;
+
       allItems = dedupeItemsByUuid(allItems.concat(items));
       const newTransformed = items.map((item, i) =>
         transformMarketplaceItem(item, allItems.length - items.length + i)
       );
       transformed = dedupeItemsByUuid(transformed.concat(newTransformed));
-      loadProgress.done = end;
+      loadProgress.done = Math.max(loadProgress.done, batchEnd);
       loadProgress.itemsLoaded = transformed.length;
-      if (typeof onProgress === 'function') onProgress(end, MARKETPLACE_TOTAL_PAGES);
+      loadProgress.total = getMarketplaceTotalPages() || Math.max(loadProgress.done, transformed.length);
+      if (typeof onProgress === 'function') onProgress(loadProgress.done, loadProgress.total);
       if (typeof onBatch === 'function') onBatch(transformed, loadProgress);
       saveMarketplaceCacheData(transformed, loadProgress.done, false, upstreamFingerprint);
+
+      if (totalKnown > 0 && batchEnd >= totalKnown) break;
+      if (items.length < batch.length) break;
+      currentPage = batchEnd + 1;
+      if (currentPage > Number.MAX_SAFE_INTEGER / 2) break;
     }
 
     loadProgress.complete = true;
-    saveMarketplaceCacheData(transformed, MARKETPLACE_TOTAL_PAGES, true, upstreamFingerprint);
-    if (typeof onProgress === 'function') onProgress(MARKETPLACE_TOTAL_PAGES, MARKETPLACE_TOTAL_PAGES);
+    loadProgress.total = getMarketplaceTotalPages() || Math.max(loadProgress.done, transformed.length);
+    saveMarketplaceCacheData(transformed, loadProgress.total || loadProgress.done, true, upstreamFingerprint);
+    if (typeof onProgress === 'function') onProgress(loadProgress.total || loadProgress.done, loadProgress.total || loadProgress.done);
     if (typeof onBatch === 'function') onBatch(transformed, loadProgress);
     return transformed;
   }
