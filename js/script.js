@@ -44,7 +44,7 @@ if (!window.location.hash) {
   // The app now uses the Vercel bridge/proxy so the frontend does not hit the
   // upstream source or Discord directly. Do not hardcode the total page count;
   // the API should determine the real end of the catalog and stop naturally.
-  const MARKETPLACE_API = 'https://keys-steel.vercel.app/api/items';
+  const MARKETPLACE_API = 'https://mcsrc.vercel.app/api/items';
   let MARKETPLACE_TOTAL_PAGES = null;
   const MARKETPLACE_PARALLEL_PAGES = 20; // fetch 20 pages in parallel = 480 items per batch
   const MARKETPLACE_CACHE_KEY = 'marketplace_api_cache_v1';
@@ -57,9 +57,9 @@ if (!window.location.hash) {
   // Use the public keys.json database for item download links. This must always
   // refresh on page load so the app reflects the latest download availability.
   // Do not cache the database in localStorage.
-  const DOWNLOAD_DB_URL = 'https://keys-steel.vercel.app/api/keys';
+  const DOWNLOAD_DB_URL = 'https://mcsrc.vercel.app/api/keys';
   const DOWNLOAD_DB_RETRY_ATTEMPTS = 3;
-  const TOKEN_URL = 'https://keys-steel.vercel.app/api/token';
+  const TOKEN_URL = 'https://mcsrc.vercel.app/api/token';
   const PROTECTED_ACTION_COOLDOWN_MS = 5000;
   let cachedRequestToken = null;
   let cachedRequestTokenExpiry = 0;
@@ -1951,7 +1951,7 @@ if (!window.location.hash) {
     };
 
     const token = await getRequestAuthToken();
-    const response = await fetch('https://keys-steel.vercel.app/api/webhook', {
+    const response = await fetch('https://mcsrc.vercel.app/api/webhook', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -3849,7 +3849,7 @@ if (!window.location.hash) {
   async function fetchItemDetail(item) {
     if (item._detailLoaded) return item;
     try {
-      const url = `https://keys-steel.vercel.app/api/items?id=${encodeURIComponent(item.uuid)}`;
+      const url = `https://mcsrc.vercel.app/api/items?id=${encodeURIComponent(item.uuid)}`;
       const response = await fetch(url, { cache: 'force-cache' });
       if (!response.ok) {
         item._detailLoaded = true;
