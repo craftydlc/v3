@@ -777,7 +777,7 @@ if (!window.location.hash) {
   }
 
   function getFilteredSortedItems() {
-    let filteredItems = itemsData;
+    let filteredItems = dedupeItemsByUuid(itemsData);
     if (currentSort === 'favourites') {
       const favs = loadFavourites();
       filteredItems = filteredItems.filter(item => favs.has(item.uuid));
@@ -796,7 +796,7 @@ if (!window.location.hash) {
     } else if (currentSort !== 'favourites' && currentCategory !== 'all') {
       filteredItems = filteredItems.filter(item => item.category === currentCategory);
     }
-    return sortItems(filteredItems);
+    return sortItems(dedupeItemsByUuid(filteredItems));
   }
 
   function resetPagination() {
@@ -1261,6 +1261,7 @@ if (!window.location.hash) {
     }
 
     container.querySelector('.no-items')?.remove();
+    const existingUuids = new Set(Array.from(container.querySelectorAll('.item')).map(el => String(el.dataset.uuid || '').toLowerCase()));
     const renderedItems = container.querySelectorAll('.item').length;
     const targetCount = Math.min(currentPage * ITEMS_PER_PAGE, allFilteredSortedItems.length);
     if (renderedItems >= targetCount) {
@@ -1270,8 +1271,12 @@ if (!window.location.hash) {
 
     const fragment = document.createDocumentFragment();
     for (let index = renderedItems; index < targetCount; index += 1) {
-      const itemEl = createItemElement(allFilteredSortedItems[index]);
+      const item = allFilteredSortedItems[index];
+      const itemUuid = String(item?.uuid || '').toLowerCase();
+      if (!itemUuid || existingUuids.has(itemUuid)) continue;
+      const itemEl = createItemElement(item);
       fragment.appendChild(itemEl);
+      existingUuids.add(itemUuid);
     }
     container.appendChild(fragment);
     container.querySelectorAll('.item:nth-last-child(-n+24)').forEach(shrinkStyle2TitleIfThreeLines);
@@ -1303,12 +1308,17 @@ if (!window.location.hash) {
       }
 
       document.getElementById('loadingIndicator')?.remove();
+      const existingUuids = new Set(Array.from(container.querySelectorAll('.item')).map(el => String(el.dataset.uuid || '').toLowerCase()));
       const startIndex = currentPage * ITEMS_PER_PAGE;
       const endIndex = Math.min((currentPage + 1) * ITEMS_PER_PAGE, allFilteredSortedItems.length);
       for (let i = startIndex; i < endIndex; i += 1) {
         if (currentLoadToken !== currentRenderToken) break;
-        const itemEl = createItemElement(allFilteredSortedItems[i]);
+        const item = allFilteredSortedItems[i];
+        const itemUuid = String(item?.uuid || '').toLowerCase();
+        if (!itemUuid || existingUuids.has(itemUuid)) continue;
+        const itemEl = createItemElement(item);
         container.appendChild(itemEl);
+        existingUuids.add(itemUuid);
         shrinkStyle2TitleIfThreeLines(itemEl);
       }
       if (currentLoadToken !== currentRenderToken) {
@@ -2949,7 +2959,7 @@ if (!window.location.hash) {
   }
 
   function getBaseItems() {
-    let baseItems = itemsData;
+    let baseItems = dedupeItemsByUuid(itemsData);
     if (currentCategory !== 'all') {
       baseItems = baseItems.filter(item => item.category === currentCategory);
     }
@@ -2957,7 +2967,7 @@ if (!window.location.hash) {
       const favs = loadFavourites();
       baseItems = baseItems.filter(item => favs.has(item.uuid));
     }
-    return sortItems(baseItems);
+    return sortItems(dedupeItemsByUuid(baseItems));
   }
 
   function getCategoryCount() {
