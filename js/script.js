@@ -858,15 +858,9 @@ if (!window.location.hash) {
     const workers = [];
     for (let i = 0; i < concurrency; i++) workers.push(fetchNext());
 
-    // After all workers complete, re-sort if sorting by rating/popularity
-    Promise.all(workers).then(() => {
-      if (currentSort === 'ratingHigh' || currentSort === 'ratingLow' ||
-          currentSort === 'popularityMost' || currentSort === 'popularityLeast') {
-        // Re-sort and re-render with the new rating data
-        allFilteredSortedItems = getBaseItems();
-        renderItems();
-      }
-    }).catch(() => {});
+    // Detail hydration updates each existing card in place. Rebuilding the
+    // whole grid here would reset the user's scroll position.
+    Promise.all(workers).catch(() => {});
   }
 
   /**
