@@ -3638,9 +3638,6 @@ if (!window.location.hash) {
       const computedPages = Math.ceil(totalFromApi / 24);
       MARKETPLACE_TOTAL_PAGES = computedPages > 0 ? computedPages : null;
     }
-    if (items.length === 0 && MARKETPLACE_TOTAL_PAGES === null) {
-      MARKETPLACE_TOTAL_PAGES = page;
-    }
     return items;
   }
 
@@ -4084,6 +4081,7 @@ if (!window.location.hash) {
     // reports no more results. This avoids hardcoded page limits.
     const batchSize = MARKETPLACE_PARALLEL_PAGES;
     let currentPage = startPage;
+    let consecutiveEmptyBatches = 0;
     while (true) {
       const totalKnown = getMarketplaceTotalPages();
       const maxPage = totalKnown > 0 ? totalKnown : currentPage + batchSize - 1;
@@ -4092,8 +4090,16 @@ if (!window.location.hash) {
       if (batch.length === 0) break;
 
       const items = dedupeItemsByUuid(await fetchMarketplacePagesParallel(batch));
-      if (!items.length) break;
+      if (!items.length) {
+        consecutiveEmptyBatches += 1;
+        if (consecutiveEmptyBatches >= 2 || (totalKnown > 0 && batchEnd >= totalKnown)) {
+          break;
+        }
+        currentPage = batchEnd + 1;
+        continue;
+      }
 
+      consecutiveEmptyBatches = 0;
       allItems = dedupeItemsByUuid(allItems.concat(items));
       const newTransformed = items.map((item, i) =>
         transformMarketplaceItem(item, allItems.length - items.length + i)
@@ -4107,7 +4113,6 @@ if (!window.location.hash) {
       saveMarketplaceCacheData(transformed, loadProgress.done, false, upstreamFingerprint);
 
       if (totalKnown > 0 && batchEnd >= totalKnown) break;
-      if (items.length < batch.length) break;
       currentPage = batchEnd + 1;
       if (currentPage > Number.MAX_SAFE_INTEGER / 2) break;
     }
