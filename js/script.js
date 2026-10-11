@@ -4389,8 +4389,7 @@ if (!window.location.hash) {
           redirect: 'follow',
           signal: controller.signal,
           headers: {
-            Accept: 'application/gzip, application/json',
-            ...API_PATH_HEADERS
+            Accept: 'application/gzip, application/json'
           }
         });
 
